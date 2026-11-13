@@ -32,30 +32,18 @@ async function generarPaginaPrueba(numero) {
     .toBuffer();
 }
 
-function subirLoteTelegram(buffers, offsetIndex) {
+function subirPaginaTelegram(buffer, pageIndex) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
-    
-    // 1. Primero chat_id y el JSON de media
+    const filename = `${MANGA_ID}_cap${CAPITULO}_p${String(pageIndex + 1).padStart(3, '0')}.webp`;
+
     form.append('chat_id', CHAT_ID);
-
-    const media = buffers.map((_, i) => ({
-      type: 'document',
-      media: `attach://file_${i}`
-    }));
-    form.append('media', JSON.stringify(media));
-
-    // 2. Después los archivos binarios referenciados
-    buffers.forEach((buf, i) => {
-      const key = `file_${i}`;
-      const filename = `${MANGA_ID}_cap${CAPITULO}_p${String(offsetIndex + i + 1).padStart(3, '0')}.webp`;
-      form.append(key, buf, { filename, contentType: 'image/webp' });
-    });
+    form.append('document', buffer, { filename, contentType: 'image/webp' });
 
     const req = https.request(
       {
         hostname: 'api.telegram.org',
-        path: `/bot${BOT_TOKEN}/sendMediaGroup`,
+        path: `/bot${BOT_TOKEN}/sendDocument`,
         method: 'POST',
         headers: form.getHeaders()
       },
@@ -66,9 +54,9 @@ function subirLoteTelegram(buffers, offsetIndex) {
           try {
             const data = JSON.parse(body);
             if (!data.ok) {
-              return reject(new Error(`Telegram API Error: ${body}`));
+              return reject(new Error(`Telegram API Error (Pág ${pageIndex + 1}): ${body}`));
             }
-            resolve(data.result.map((msg) => msg.document.file_id));
+            resolve(data.result.document.file_id);
           } catch (err) {
             reject(err);
           }
@@ -85,19 +73,21 @@ async function ejecutar() {
   console.log(`Iniciando ingesta: ${MANGA_ID} - Cap. ${CAPITULO} (${PAGINAS_PRUEBA} páginas)`);
   const fileIds = [];
 
-  for (let i = 0; i < PAGINAS_PRUEBA; i += 10) {
-    const cantidad = Math.min(10, PAGINAS_PRUEBA - i);
-    console.log(`Generando y optimizando páginas ${i + 1} a ${i + cantidad}...`);
+  for (let i = 0; i < PAGINAS_PRUEBA; i += 3) {
+    const cantidad = Math.min(3, PAGINAS_PRUEBA - i);
+    console.log(`Procesando y subiendo páginas ${i + 1} a ${i + cantidad}...`);
 
     const buffers = await Promise.all(
       Array.from({ length: cantidad }, (_, idx) => generarPaginaPrueba(i + idx + 1))
     );
 
-    console.log(`Subiendo lote a Telegram...`);
-    const idsLote = await subirLoteTelegram(buffers, i);
+    const idsLote = await Promise.all(
+      buffers.map((buf, idx) => subirPaginaTelegram(buf, i + idx))
+    );
+
     fileIds.push(...idsLote);
 
-    if (i + 10 < PAGINAS_PRUEBA) await sleep(3000);
+    if (i + 3 < PAGINAS_PRUEBA) await sleep(1500);
   }
 
   const dirSalida = path.join('data', 'capitulos', MANGA_ID);
