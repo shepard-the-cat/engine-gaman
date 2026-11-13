@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import https from 'https';
 import sharp from 'sharp';
+import FormData from 'form-data';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -11,7 +13,6 @@ const PAGINAS_PRUEBA = 3;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Genera una página WebP de 1200x1800 px de alta calidad para probar el flujo
 async function generarPaginaPrueba(numero) {
   const svg = `
     <svg width="1200" height="1800" xmlns="http://www.w3.org/2000/svg">
@@ -21,7 +22,7 @@ async function generarPaginaPrueba(numero) {
         ${MANGA_ID.toUpperCase()} - CAP ${CAPITULO}
       </text>
       <text x="600" y="960" font-family="sans-serif" font-size="48" fill="#f59e0b" text-anchor="middle">
-        PÁGINA ${numero} (WEBP SIN COMPRESIÓN)
+        PAGINA ${numero} (WEBP SIN COMPRESION)
       </text>
     </svg>
   `;
@@ -31,30 +32,47 @@ async function generarPaginaPrueba(numero) {
     .toBuffer();
 }
 
-async function subirLoteTelegram(buffers, offsetIndex) {
-  const formData = new FormData();
-  formData.append('chat_id', CHAT_ID);
+function subirLoteTelegram(buffers, offsetIndex) {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append('chat_id', CHAT_ID);
 
-  const media = buffers.map((buf, i) => {
-    const key = `file_${i}`;
-    const filename = `${MANGA_ID}_cap${CAPITULO}_p${String(offsetIndex + i + 1).padStart(3, '0')}.webp`;
-    formData.append(key, new Blob([buf], { type: 'image/webp' }), filename);
-    return { type: 'document', media: `attach://${key}` };
+    const media = buffers.map((buf, i) => {
+      const key = `file_${i}`;
+      const filename = `${MANGA_ID}_cap${CAPITULO}_p${String(offsetIndex + i + 1).padStart(3, '0')}.webp`;
+      form.append(key, buf, { filename, contentType: 'image/webp' });
+      return { type: 'document', media: `attach://${key}` };
+    });
+
+    form.append('media', JSON.stringify(media));
+
+    const req = https.request(
+      {
+        hostname: 'api.telegram.org',
+        path: `/bot${BOT_TOKEN}/sendMediaGroup`,
+        method: 'POST',
+        headers: form.getHeaders()
+      },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => (body += chunk));
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(body);
+            if (!data.ok) {
+              return reject(new Error(`Telegram API Error: ${body}`));
+            }
+            resolve(data.result.map((msg) => msg.document.file_id));
+          } catch (err) {
+            reject(err);
+          }
+        });
+      }
+    );
+
+    req.on('error', reject);
+    form.pipe(req);
   });
-
-  formData.append('media', JSON.stringify(media));
-
-  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMediaGroup`, {
-    method: 'POST',
-    body: formData
-  });
-
-  const data = await res.json();
-  if (!data.ok) {
-    throw new Error(`Telegram API Error: ${JSON.stringify(data)}`);
-  }
-
-  return data.result.map((msg) => msg.document.file_id);
 }
 
 async function ejecutar() {
