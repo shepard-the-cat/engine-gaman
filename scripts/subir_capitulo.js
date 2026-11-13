@@ -38,6 +38,7 @@ function subirPaginaTelegram(buffer, pageIndex) {
     const filename = `${MANGA_ID}_cap${CAPITULO}_p${String(pageIndex + 1).padStart(3, '0')}.webp`;
 
     form.append('chat_id', CHAT_ID);
+    form.append('disable_content_type_detection', 'true');
     form.append('document', buffer, { filename, contentType: 'image/webp' });
 
     const req = https.request(
@@ -56,7 +57,12 @@ function subirPaginaTelegram(buffer, pageIndex) {
             if (!data.ok) {
               return reject(new Error(`Telegram API Error (Pág ${pageIndex + 1}): ${body}`));
             }
-            resolve(data.result.document.file_id);
+            const r = data.result;
+            const fileId = r.document?.file_id || r.sticker?.file_id || r.photo?.at(-1)?.file_id;
+            if (!fileId) {
+              return reject(new Error(`No se encontró file_id en la respuesta: ${body}`));
+            }
+            resolve(fileId);
           } catch (err) {
             reject(err);
           }
