@@ -35,16 +35,22 @@ async function generarPaginaPrueba(numero) {
 function subirLoteTelegram(buffers, offsetIndex) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
+    
+    // 1. Primero chat_id y el JSON de media
     form.append('chat_id', CHAT_ID);
 
-    const media = buffers.map((buf, i) => {
+    const media = buffers.map((_, i) => ({
+      type: 'document',
+      media: `attach://file_${i}`
+    }));
+    form.append('media', JSON.stringify(media));
+
+    // 2. Después los archivos binarios referenciados
+    buffers.forEach((buf, i) => {
       const key = `file_${i}`;
       const filename = `${MANGA_ID}_cap${CAPITULO}_p${String(offsetIndex + i + 1).padStart(3, '0')}.webp`;
       form.append(key, buf, { filename, contentType: 'image/webp' });
-      return { type: 'document', media: `attach://${key}` };
     });
-
-    form.append('media', JSON.stringify(media));
 
     const req = https.request(
       {
