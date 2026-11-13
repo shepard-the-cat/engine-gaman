@@ -7,26 +7,26 @@ const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 const MANGA_ID = 'berserk';
 const CAPITULO = '1';
-const URLS_PRUEBA = [
-  'https://picsum.photos/1200/1800?random=1',
-  'https://picsum.photos/1200/1800?random=2',
-  'https://picsum.photos/1200/1800?random=3'
-];
+const PAGINAS_PRUEBA = 3;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function descargarYOptimizar(url, index) {
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Referer': new URL(url).origin + '/'
-    }
-  });
+// Genera una página WebP de 1200x1800 px de alta calidad para probar el flujo
+async function generarPaginaPrueba(numero) {
+  const svg = `
+    <svg width="1200" height="1800" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="#111111"/>
+      <rect x="40" y="40" width="1120" height="1720" fill="none" stroke="#f59e0b" stroke-width="8"/>
+      <text x="600" y="850" font-family="sans-serif" font-size="72" fill="#ffffff" text-anchor="middle">
+        ${MANGA_ID.toUpperCase()} - CAP ${CAPITULO}
+      </text>
+      <text x="600" y="960" font-family="sans-serif" font-size="48" fill="#f59e0b" text-anchor="middle">
+        PÁGINA ${numero} (WEBP SIN COMPRESIÓN)
+      </text>
+    </svg>
+  `;
 
-  if (!res.ok) throw new Error(`Error descargando página ${index + 1}: ${res.status}`);
-  const buffer = Buffer.from(await res.arrayBuffer());
-
-  return await sharp(buffer)
+  return await sharp(Buffer.from(svg))
     .webp({ quality: 85, effort: 4 })
     .toBuffer();
 }
@@ -58,22 +58,22 @@ async function subirLoteTelegram(buffers, offsetIndex) {
 }
 
 async function ejecutar() {
-  console.log(`Iniciando ingesta: ${MANGA_ID} - Cap. ${CAPITULO} (${URLS_PRUEBA.length} páginas)`);
+  console.log(`Iniciando ingesta: ${MANGA_ID} - Cap. ${CAPITULO} (${PAGINAS_PRUEBA} páginas)`);
   const fileIds = [];
 
-  for (let i = 0; i < URLS_PRUEBA.length; i += 10) {
-    const bloqueUrls = URLS_PRUEBA.slice(i, i + 10);
-    console.log(`Descargando y optimizando páginas ${i + 1} a ${i + bloqueUrls.length}...`);
+  for (let i = 0; i < PAGINAS_PRUEBA; i += 10) {
+    const cantidad = Math.min(10, PAGINAS_PRUEBA - i);
+    console.log(`Generando y optimizando páginas ${i + 1} a ${i + cantidad}...`);
 
     const buffers = await Promise.all(
-      bloqueUrls.map((url, idx) => descargarYOptimizar(url, i + idx))
+      Array.from({ length: cantidad }, (_, idx) => generarPaginaPrueba(i + idx + 1))
     );
 
     console.log(`Subiendo lote a Telegram...`);
     const idsLote = await subirLoteTelegram(buffers, i);
     fileIds.push(...idsLote);
 
-    if (i + 10 < URLS_PRUEBA.length) await sleep(3000);
+    if (i + 10 < PAGINAS_PRUEBA) await sleep(3000);
   }
 
   const dirSalida = path.join('data', 'capitulos', MANGA_ID);
